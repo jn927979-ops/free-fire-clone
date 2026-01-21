@@ -3,141 +3,238 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mobile Free Fire Clone</title>
+    <title>FF Mobile Web Clone</title>
     <style>
-        body { margin: 0; overflow: hidden; touch-action: none; font-family: sans-serif; }
-        #crosshair {
-            position: absolute; top: 50%; left: 50%; width: 10px; height: 10px;
-            background: red; border-radius: 50%; transform: translate(-50%, -50%);
-            pointer-events: none; z-index: 10;
-        }
-        /* Mobile Controls Styling */
-        .controls {
-            position: absolute; bottom: 20px; left: 20px;
-            display: grid; grid-template-columns: repeat(3, 50px); grid-gap: 5px;
-            z-index: 20;
-        }
-        .btn {
-            width: 50px; height: 50px; background: rgba(255,255,255,0.5);
-            border-radius: 10px; display: flex; align-items: center; justify-content: center;
-            user-select: none; font-weight: bold; font-size: 20px;
-        }
-        #shoot-btn {
-            position: absolute; bottom: 40px; right: 40px;
-            width: 70px; height: 70px; background: rgba(255, 0, 0, 0.6);
-            border-radius: 50%; display: flex; align-items: center; justify-content: center;
-            color: white; font-weight: bold; z-index: 20;
-        }
+        body { margin: 0; overflow: hidden; touch-action: none; font-family: 'Arial', sans-serif; background: #000; }
+        canvas { display: block; }
+
+        /* UI Elements */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .hud { pointer-events: auto; }
+
+        /* Health Bar */
+        #health-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 200px; height: 15px; background: rgba(0,0,0,0.5); border: 2px solid #fff; }
+        #health-bar { width: 100%; height: 100%; background: #ff3333; transition: width 0.3s; }
+
+        /* Kill Counter */
+        #kill-info { position: absolute; top: 20px; right: 20px; color: #fff; font-weight: bold; font-size: 20px; text-shadow: 2px 2px #000; }
+
+        /* Joystick & Buttons */
+        #joystick-zone { position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px; background: rgba(255,255,255,0.1); border-radius: 50%; }
+        #joystick-stick { position: absolute; top: 35px; left: 35px; width: 50px; height: 50px; background: rgba(255,255,255,0.5); border-radius: 50%; }
+        
+        #fire-btn { position: absolute; bottom: 60px; right: 40px; width: 80px; height: 80px; background: rgba(255,50,50,0.7); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; border: 4px solid #fff; }
+
+        /* Crosshair */
+        #crosshair { position: absolute; top: 50%; left: 50%; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.8); border-radius: 50%; transform: translate(-50%, -50%); }
+
+        /* Game Over Screen */
+        #game-over { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; flex-direction: column; align-items: center; justify-content: center; color: white; z-index: 100; }
+        #restart-btn { margin-top: 20px; padding: 15px 30px; background: #ff3333; border: none; color: white; font-size: 20px; border-radius: 10px; cursor: pointer; }
     </style>
 </head>
 <body>
 
-    <div id="crosshair"></div>
-    
-    <div class="controls">
-        <div></div><div class="btn" id="btn-up">↑</div><div></div>
-        <div class="btn" id="btn-left">←</div><div class="btn" id="btn-down">↓</div><div class="btn" id="btn-right">→</div>
+    <div id="ui-layer">
+        <div id="kill-info">KILLS: <span id="kill-count">0</span></div>
+        <div id="health-container"><div id="health-bar"></div></div>
+        <div id="crosshair"></div>
+        
+        <div id="joystick-zone" class="hud">
+            <div id="joystick-stick"></div>
+        </div>
+        <div id="fire-btn" class="hud">FIRE</div>
     </div>
 
-    <div id="shoot-btn">FIRE</div>
+    <div id="game-over">
+        <h1>BOOYAH FAIL!</h1>
+        <p>You were eliminated.</p>
+        <button id="restart-btn" onclick="location.reload()">RESTART</button>
+    </div>
 
     <script type="module">
         import * as THREE from 'https://cdn.skypack.dev/three@0.132.2';
 
-        // 1. Scene Setup
+        // --- SETUP ---
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87ceeb);
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        scene.background = new THREE.Color(0xa0d2eb);
+        scene.fog = new THREE.Fog(0xa0d2eb, 10, 100);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: false }); // Fast Performance
+        renderer.setPixelRatio(window.devicePixelRatio > 1 ? 1.5 : 1); // FPS Boost
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
 
-        // 2. Lighting & Ground
-        const light = new THREE.AmbientLight(0xffffff, 0.8);
+        const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
         scene.add(light);
+
+        // --- GROUND ---
         const ground = new THREE.Mesh(
             new THREE.PlaneGeometry(200, 200),
-            new THREE.MeshPhongMaterial({ color: 0x228B22 })
+            new THREE.MeshPhongMaterial({ color: 0x4e7a32 })
         );
         ground.rotation.x = -Math.PI / 2;
         scene.add(ground);
 
-        // Add some "Enemies" (Red Boxes)
-        for(let i=0; i<10; i++) {
-            const enemy = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), new THREE.MeshPhongMaterial({color: 0xff0000}));
-            enemy.position.set(Math.random()*40-20, 2, Math.random()*40-20);
+        // --- PLAYER STATE ---
+        let health = 100;
+        let kills = 0;
+        let isDead = false;
+        let moveX = 0, moveZ = 0;
+        let lookYaw = 0, lookPitch = 0;
+
+        // --- ENEMIES SYSTEM ---
+        const enemies = [];
+        const enemySpeed = 0.05;
+
+        function spawnEnemy() {
+            const geo = new THREE.BoxGeometry(1.5, 3, 1.5);
+            const mat = new THREE.MeshLambertMaterial({ color: 0xff0000 });
+            const enemy = new THREE.Mesh(geo, mat);
+            
+            // Random position away from player
+            const angle = Math.random() * Math.PI * 2;
+            const dist = 30 + Math.random() * 20;
+            enemy.position.set(Math.cos(angle)*dist, 1.5, Math.sin(angle)*dist);
+            
             scene.add(enemy);
+            enemies.push(enemy);
         }
 
-        // 3. Movement & Rotation Logic
-        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
-        let yaw = 0, pitch = 0;
+        for(let i=0; i<8; i++) spawnEnemy();
 
-        // Touch Look (Ghumne ke liye)
-        let touchStartX = 0, touchStartY = 0;
-        window.addEventListener('touchstart', (e) => {
-            touchStartX = e.touches[0].clientX;
-            touchStartY = e.touches[0].clientY;
-        });
+        // --- BULLETS ---
+        const bullets = [];
+        function shoot() {
+            if(isDead) return;
+            const b = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshBasicMaterial({color: 0xffff00}));
+            b.position.copy(camera.position);
+            const dir = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
+            bullets.push({ mesh: b, dir: dir, life: 60 });
+            scene.add(b);
+        }
+
+        // --- CONTROLS (TOUCH & JOYSTICK) ---
+        const joystick = document.getElementById('joystick-stick');
+        const stickRect = document.getElementById('joystick-zone').getBoundingClientRect();
+        const centerX = stickRect.left + 60, centerY = stickRect.top + 60;
+
         window.addEventListener('touchmove', (e) => {
-            const deltaX = e.touches[0].clientX - touchStartX;
-            const deltaY = e.touches[0].clientY - touchStartY;
-            touchStartX = e.touches[0].clientX;
-            touchStartY = e.touches[0].clientY;
-
-            yaw -= deltaX * 0.005;
-            pitch -= deltaY * 0.005;
-            pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
+            for(let t of e.touches) {
+                // Joystick logic
+                if(t.clientX < window.innerWidth / 2) {
+                    let dx = t.clientX - centerX;
+                    let dy = t.clientY - centerY;
+                    let dist = Math.sqrt(dx*dx + dy*dy);
+                    let max = 40;
+                    if(dist > max) { dx *= max/dist; dy *= max/dist; }
+                    joystick.style.transform = `translate(${dx}px, ${dy}px)`;
+                    moveX = dx/max; moveZ = dy/max;
+                } 
+                // Look logic (Right side of screen)
+                else {
+                    lookYaw -= t.force ? 0 : (e.movementX || 0) * 0.005; 
+                    // Note: Basic touch look without movementX needs delta calc
+                }
+            }
         });
 
-        // Button Events
-        const setupBtn = (id, action) => {
-            const el = document.getElementById(id);
-            el.addEventListener('touchstart', () => action(true));
-            el.addEventListener('touchend', () => action(false));
-        };
-
-        setupBtn('btn-up', (val) => moveForward = val);
-        setupBtn('btn-down', (val) => moveBackward = val);
-        setupBtn('btn-left', (val) => moveLeft = val);
-        setupBtn('btn-right', (val) => moveRight = val);
-
-        // 4. Shooting Function
-        document.getElementById('shoot-btn').addEventListener('touchstart', () => {
-            const bullet = new THREE.Mesh(new THREE.SphereGeometry(0.2), new THREE.MeshBasicMaterial({color: 0xffff00}));
-            bullet.position.copy(camera.position);
-            const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            scene.add(bullet);
-
-            let lifetime = 0;
-            const bInterval = setInterval(() => {
-                bullet.position.addScaledVector(dir, 1);
-                lifetime++;
-                if(lifetime > 50) { scene.remove(bullet); clearInterval(bInterval); }
-            }, 20);
+        // Simple Mobile Look Support
+        let lastTouchX = 0, lastTouchY = 0;
+        window.addEventListener('touchstart', e => {
+            lastTouchX = e.touches[0].clientX;
+            lastTouchY = e.touches[0].clientY;
+        });
+        window.addEventListener('touchmove', e => {
+            let t = e.touches[0];
+            if(t.clientX > window.innerWidth / 2) {
+                let dx = t.clientX - lastTouchX;
+                let dy = t.clientY - lastTouchY;
+                lookYaw -= dx * 0.005;
+                lookPitch -= dy * 0.005;
+                lookPitch = Math.max(-1.5, Math.min(1.5, lookPitch));
+            }
+            lastTouchX = t.clientX; lastTouchY = t.clientY;
         });
 
-        // 5. Game Loop
-        camera.position.y = 2;
-        function animate() {
-            requestAnimationFrame(animate);
+        window.addEventListener('touchend', () => {
+            joystick.style.transform = `translate(0,0)`;
+            moveX = 0; moveZ = 0;
+        });
 
-            camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+        document.getElementById('fire-btn').addEventListener('touchstart', (e) => {
+            e.preventDefault(); shoot();
+        });
 
-            const speed = 0.2;
-            const dir = new THREE.Vector3();
-            camera.getWorldDirection(dir);
-            dir.y = 0; dir.normalize();
-            const side = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), dir).normalize();
+        // --- GAME LOOP ---
+        function update() {
+            if(isDead) return;
 
-            if (moveForward) camera.position.addScaledVector(dir, speed);
-            if (moveBackward) camera.position.addScaledVector(dir, -speed);
-            if (moveLeft) camera.position.addScaledVector(side, speed);
-            if (moveRight) camera.position.addScaledVector(side, -speed);
+            // 1. Player Move
+            const dir = new THREE.Vector3(moveX, 0, moveZ).applyEuler(new THREE.Euler(0, lookYaw, 0));
+            camera.position.x += dir.x * 0.15;
+            camera.position.z += dir.z * 0.15;
+            camera.rotation.set(lookPitch, lookYaw, 0, 'YXZ');
+            camera.position.y = 2;
+
+            // 2. Enemies AI
+            enemies.forEach((en, index) => {
+                const dist = en.position.distanceTo(camera.position);
+                
+                // Follow player
+                const vec = new THREE.Vector3().subVectors(camera.position, en.position).normalize();
+                en.position.x += vec.x * enemySpeed;
+                en.position.z += vec.z * enemySpeed;
+
+                // Attack player
+                if(dist < 2) {
+                    health -= 0.5;
+                    document.getElementById('health-bar').style.width = health + "%";
+                    if(health <= 0) {
+                        isDead = true;
+                        document.getElementById('game-over').style.display = 'flex';
+                    }
+                }
+            });
+
+            // 3. Bullets & Collision
+            bullets.forEach((b, bi) => {
+                b.mesh.position.addScaledVector(b.dir, 1);
+                b.life--;
+                
+                // Hit enemy?
+                enemies.forEach((en, ei) => {
+                    if(b.mesh.position.distanceTo(en.position) < 2) {
+                        scene.remove(en);
+                        enemies.splice(ei, 1);
+                        scene.remove(b.mesh);
+                        bullets.splice(bi, 1);
+                        kills++;
+                        document.getElementById('kill-count').innerText = kills;
+                        spawnEnemy(); // Keep action going
+                    }
+                });
+
+                if(b.life <= 0) {
+                    scene.remove(b.mesh);
+                    bullets.splice(bi, 1);
+                }
+            });
 
             renderer.render(scene, camera);
+            requestAnimationFrame(update);
         }
-        animate();
+
+        update();
+
+        // Handle Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
     </script>
 </body>
 </html>
